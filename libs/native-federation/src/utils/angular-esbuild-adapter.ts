@@ -29,6 +29,7 @@ import { ApplicationBuilderOptions } from '@angular/build';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createSharedMappingsPlugin } from './shared-mappings-plugin';
+import { trackPlugin, TrackedPlugin } from './track-plugin';
 
 import { PluginItem, transformAsync } from '@babel/core';
 import {
@@ -263,6 +264,13 @@ async function runEsbuild(
 
   pluginOptions.styleOptions.externalDependencies = [];
 
+  const trackedCompilerPlugin = trackPlugin(
+    createCompilerPlugin(
+      pluginOptions.pluginOptions,
+      pluginOptions.styleOptions
+    )
+  );
+
   const config: esbuild.BuildOptions = {
     entryPoints: entryPoints.map((ep) => ({
       in: ep.fileName,
@@ -287,10 +295,7 @@ async function runEsbuild(
     target: target,
     logLimit: kind === 'shared-package' ? 1 : 0,
     plugins: (plugins as any) || [
-      createCompilerPlugin(
-        pluginOptions.pluginOptions,
-        pluginOptions.styleOptions
-      ),
+      trackedCompilerPlugin,
       ...(mappedPaths && mappedPaths.length > 0
         ? [createSharedMappingsPlugin(mappedPaths)]
         : []),
@@ -321,7 +326,8 @@ async function runEsbuild(
       memOnly
     );
   } else {
-    ctx.dispose();
+    await ctx.dispose();
+    await trackedCompilerPlugin.waitForCleanup();
   }
 
   return writtenFiles;
