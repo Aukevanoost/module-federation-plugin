@@ -1,6 +1,9 @@
 import { Plugin } from 'esbuild';
 
-export type TrackedPlugin = Plugin & { waitForCleanup(): Promise<void> };
+export type TrackedPlugin = {
+  plugin: Plugin;
+  awaitDisposal: () => Promise<void>;
+};
 
 export function trackPlugin(plugin: Plugin): TrackedPlugin {
   let cleanupResolver: (() => void) | null = null;
@@ -9,25 +12,24 @@ export function trackPlugin(plugin: Plugin): TrackedPlugin {
   });
 
   return {
-    name: plugin.name,
-    async setup(build) {
-      const originalOnDispose = build.onDispose.bind(build);
-      build.onDispose = (callback) => {
-        originalOnDispose(() => {
-          callback();
+    plugin: {
+      name: plugin.name,
+      async setup(build) {
+        const originalOnDispose = build.onDispose;
+        build.onDispose = (callback) => {
+          originalOnDispose.call(build, () => {
+            callback();
 
-          if (cleanupResolver) {
-            cleanupResolver();
-            cleanupResolver = null;
-          }
-        });
-      };
+            if (cleanupResolver) {
+              cleanupResolver();
+              cleanupResolver = null;
+            }
+          });
+        };
 
-      return await plugin.setup(build);
+        return await plugin.setup(build);
+      },
     },
-
-    async waitForCleanup() {
-      await cleanupPromise;
-    },
+    awaitDisposal: () => cleanupPromise,
   };
 }

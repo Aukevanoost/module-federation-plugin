@@ -264,7 +264,7 @@ async function runEsbuild(
 
   pluginOptions.styleOptions.externalDependencies = [];
 
-  const trackedCompilerPlugin = trackPlugin(
+  const compilerPlugin = trackPlugin(
     createCompilerPlugin(
       pluginOptions.pluginOptions,
       pluginOptions.styleOptions
@@ -295,7 +295,7 @@ async function runEsbuild(
     target: target,
     logLimit: kind === 'shared-package' ? 1 : 0,
     plugins: (plugins as any) || [
-      trackedCompilerPlugin,
+      compilerPlugin.plugin,
       ...(mappedPaths && mappedPaths.length > 0
         ? [createSharedMappingsPlugin(mappedPaths)]
         : []),
@@ -327,7 +327,7 @@ async function runEsbuild(
     );
   } else {
     await ctx.dispose();
-    await trackedCompilerPlugin.waitForCleanup();
+    await compilerPlugin.awaitDisposal();
   }
 
   return writtenFiles;
