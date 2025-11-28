@@ -218,9 +218,10 @@ async function runEsbuild(
   ]);
   const postcssConfiguration =
     await loadPostcssConfiguration(searchDirectories);
+
   const tailwindConfiguration = postcssConfiguration
     ? undefined
-    : await getTailwindConfig(searchDirectories);
+    : await getTailwindConfig(workspaceRoot, searchDirectories);
 
   const outputNames = {
     bundles: '[name]',
@@ -355,6 +356,7 @@ async function runEsbuild(
 }
 
 async function getTailwindConfig(
+  workspaceRoot: string,
   searchDirectories: { root: string; files: Set<string> }[],
 ): Promise<{ file: string; package: string } | undefined> {
   const tailwindConfigurationPath =
@@ -366,7 +368,9 @@ async function getTailwindConfig(
 
   return {
     file: tailwindConfigurationPath,
-    package: createRequire(tailwindConfigurationPath).resolve('tailwindcss'),
+    package: createRequire(
+      path.join(workspaceRoot, tailwindConfigurationPath),
+    ).resolve('tailwindcss'),
   };
 }
 
