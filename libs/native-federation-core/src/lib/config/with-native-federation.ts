@@ -18,7 +18,7 @@ export function withNativeFederation(
 ): NormalizedFederationConfig {
   const skip = prepareSkipList(config.skip ?? []);
 
-  const normalized = {
+  const normalized: NormalizedFederationConfig = {
     name: config.name ?? '',
     exposes: config.exposes ?? {},
     shared: normalizeShared(config, skip),
