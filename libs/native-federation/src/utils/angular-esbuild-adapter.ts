@@ -8,7 +8,7 @@ import {
 import * as esbuild from 'esbuild';
 
 import {
-  createCompilerPlugin,
+  createCompilerPlugin as createCompilerPlugin,
   transformSupportedBrowsersToTargets,
   getSupportedBrowsers,
   generateSearchDirectories,
@@ -42,6 +42,46 @@ import { RebuildEvents, RebuildHubs } from './rebuild-events';
 
 import JSON5 from 'json5';
 import { isDeepStrictEqual } from 'node:util';
+
+function createAwaitableCompilerPlugin(
+  pluginOptions: any,
+  styleOptions: any,
+): [esbuild.Plugin, Promise<void>] {
+  const originalPlugin = createCompilerPlugin(pluginOptions, styleOptions);
+
+  let resolveDispose: () => void;
+  const onDisposePromise = new Promise<void>((resolve) => {
+    resolveDispose = resolve;
+  });
+
+  const wrappedPlugin: esbuild.Plugin = {
+    ...originalPlugin,
+    setup(build: esbuild.PluginBuild) {
+      let onDisposeCallback: (() => void | Promise<void>) | undefined;
+
+      // Wrap the build object to intercept onDispose
+      const wrappedBuild = new Proxy(build, {
+        get(target, prop) {
+          if (prop === 'onDispose') {
+            return (callback: () => void | Promise<void>) => {
+              onDisposeCallback = callback;
+              return target.onDispose(async () => {
+                await callback();
+                resolveDispose();
+              });
+            };
+          }
+          return target[prop as keyof esbuild.PluginBuild];
+        },
+      });
+
+      // Call original setup with wrapped build
+      return originalPlugin.setup(wrappedBuild);
+    },
+  };
+
+  return [wrappedPlugin, onDisposePromise];
+}
 
 export type MemResultHandler = (
   outfiles: esbuild.OutputFile[],
@@ -270,6 +310,11 @@ async function runEsbuild(
 
   pluginOptions.styleOptions.externalDependencies = [];
 
+  const [compilerPlugin, compilerPluginDispose] = createAwaitableCompilerPlugin(
+    pluginOptions.pluginOptions,
+    pluginOptions.styleOptions,
+  );
+
   const config: esbuild.BuildOptions = {
     entryPoints: entryPoints.map((ep) => ({
       in: ep.fileName,
@@ -294,10 +339,7 @@ async function runEsbuild(
     target: target,
     logLimit: kind === 'shared-package' ? 1 : 0,
     plugins: (plugins as any) || [
-      createCompilerPlugin(
-        pluginOptions.pluginOptions,
-        pluginOptions.styleOptions,
-      ),
+      compilerPlugin,
       ...(mappedPaths && mappedPaths.length > 0
         ? [createSharedMappingsPlugin(mappedPaths)]
         : []),
@@ -316,6 +358,7 @@ async function runEsbuild(
   try {
     const abortHandler = async () => {
       await ctx.cancel();
+      await compilerPluginDispose;
       await ctx.dispose();
     };
 
@@ -341,6 +384,8 @@ async function runEsbuild(
       );
     } else {
       if (signal) signal.removeEventListener('abort', abortHandler);
+
+      await compilerPluginDispose;
       await ctx.dispose();
     }
     return writtenFiles;
